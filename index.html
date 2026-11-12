@@ -830,19 +830,40 @@ function updateAI(r, o, dt) {
   o.turn = (o.turn || 0) + (tt - (o.turn || 0)) * Math.min(1, dt * 6);
   o.brk = o.speed > target + 300;
 }
+/* colisão entre carros: quem bate empurra o da frente, e o empurrão passa para os carros seguintes */
+const CAR_L = 260, CAR_W = .3;
+function collide(r, dt) {
+  const cs = r.cars.slice().sort((a, b) => a.prog - b.prog);
+  r.bumpT = Math.max(0, (r.bumpT || 0) - dt);
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 0; i < cs.length; i++) {
+      for (let j = i + 1; j < cs.length; j++) {
+        let rear = cs[i], front = cs[j];
+        if (Math.abs(rear.x - front.x) >= CAR_W) continue;
+        if (front.prog < rear.prog) { rear = cs[j]; front = cs[i]; }
+        if (front.prog - rear.prog >= CAR_L) continue;
+        front.prog = rear.prog + CAR_L;
+        const dv = rear.speed - front.speed;
+        if (dv > 0) {
+          const m = (rear.speed + front.speed) / 2;
+          rear.speed = m * .98; front.speed = m * 1.04;
+          if ((rear.isP || front.isP) && dv > MAXREF * .05 && r.bumpT <= 0) { r.bumpT = .35; if (Snd.ctx) Snd.hit(Snd.ctx.currentTime, .1, .35, 400); }
+        }
+        const ld = rear.x - front.x, side = Math.abs(ld) > .02 ? Math.sign(ld) : (rear.x >= 0 ? -1 : 1), sl = 1.4 * dt;
+        rear.x += side * sl; front.x -= side * sl;
+        if (!rear.isP) rear.x = Math.max(-1, Math.min(1, rear.x));
+        if (!front.isP) front.x = Math.max(-1, Math.min(1, front.x));
+      }
+    }
+  }
+}
 function step(r, dt) {
   if (r.state === 'count') { r.cd -= dt; if (r.cd <= 0) { r.state = 'race'; r.t = 0; } }
   else if (r.state === 'race' || r.state === 'done') r.t += dt;
   updatePlayer(r, dt);
   for (const o of r.cars) if (!o.isP) updateAI(r, o, dt);
   const pl = r.pl;
-  for (const o of r.cars) if (!o.isP) {
-    const dz = o.prog - pl.prog, ax = pl.x - o.x;
-    if (Math.abs(dz) < 260 && Math.abs(ax) < .3) {
-      if (dz > 0) { pl.speed = Math.min(pl.speed, o.speed * .9); pl.prog = o.prog - 260; pl.x += (ax >= 0 ? 1 : -1) * .04; }
-      else { o.speed = Math.min(o.speed, pl.speed * .9); o.prog = pl.prog - 260; }
-    }
-  }
+  collide(r, dt);
   for (const o of r.cars) {
     o.prog += o.speed * dt;
     const s = r.segs[Math.floor((((o.prog % r.tl) + r.tl) % r.tl) / SEG) % r.segs.length];
